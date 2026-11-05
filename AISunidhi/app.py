@@ -201,6 +201,20 @@ def _check_github(resp):
     resp.raise_for_status()
 
 
+def check_github_connection():
+    repo = str(get_secret("GITHUB_REPO", "")).strip()
+    branch = str(get_secret("GITHUB_BRANCH", "main")).strip() or "main"
+    token = str(get_secret("GITHUB_TOKEN", "")).strip()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    url = f"https://api.github.com/repos/{repo}/contents/data/projects.json"
+    response = requests.get(url, headers=headers, params={"ref": branch}, timeout=20)
+    _check_github(response)
+    return f"{repo} (branch {branch})"
+
+
 def github_commit(repo_path, content, message):
     """Create/update a file in the GitHub repo. content=None deletes it."""
     repo = str(get_secret("GITHUB_REPO")).strip()
@@ -242,6 +256,8 @@ def projects_bytes(projects):
 
 
 def add_project(title, description, files):
+    if github_enabled():
+        check_github_connection()
     projects = load_projects()
     pid = uuid.uuid4().hex[:8]
     PROJECT_IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -271,6 +287,8 @@ def add_project(title, description, files):
 
 
 def delete_project(pid):
+    if github_enabled():
+        check_github_connection()
     projects = load_projects()
     target = next((p for p in projects if p["id"] == pid), None)
     if not target:
@@ -533,6 +551,17 @@ def render_manage():
                     st.error(f"Couldn't delete: {e}")
 
     st.subheader("Diagnostics")
+    if github_enabled():
+        if st.button("Test GitHub connection"):
+            try:
+                connected = check_github_connection()
+                st.success(
+                    f"GitHub can read project storage on {connected}. "
+                    "Uploads also require Contents: Read and write."
+                )
+            except Exception as e:
+                st.error(str(e))
+
     if st.button("Test Gemini connection"):
         try:
             out = "".join(stream_reply([{"role": "user", "content": "Reply with the single word: ok"}]))
